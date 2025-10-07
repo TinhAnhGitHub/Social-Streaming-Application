@@ -7,8 +7,9 @@ services:
     environment:
       - SPARK_MODE=master
     volumes:
-      - ../src:/opt/spark-apps
-      - ../data:/opt/spark-data
+      - ./src:/opt/spark-apps
+      - ./data:/opt/spark-data
+      - ./config:/opt/spark-config
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
     ports:
       - "8080:8080"
