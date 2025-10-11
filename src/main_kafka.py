@@ -66,4 +66,5 @@ def main(use_kafka=False, kafka_bootstrap="localhost:9092", kafka_topic="topic_n
 
 
 if __name__ == "__main__":
-    main(use_kafka=False)
+    main(use_kafka=True, kafka_bootstrap="localhost:9092", kafka_topic="reddit.submissions")
+    # main(use_kafka=True, kafka_bootstrap="localhost:9092", kafka_topic="reddit.comments")
