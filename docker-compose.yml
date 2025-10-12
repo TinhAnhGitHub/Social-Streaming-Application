@@ -1,0 +1,42 @@
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"   
+      - "9001:9001" 
+    volumes:
+      - ./minio_data:/data
+    restart: unless-stopped
+
+  milvus:
+    image: milvusdb/milvus:v2.4.4
+    container_name: milvus
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_USE_EMBED: "true"
+      COMMON_STORAGE_TYPE: "minio"       
+      MINIO_ADDRESS: "minio:9000"      
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEYID: "minioadmin"
+      MINIO_SECRET_ACCESS_KEY: "minioadmin123"
+      MINIO_BUCKET_NAME: "milvus-bucket"
+      ROCKSMQ_PATH: "/var/lib/milvus/rmq"
+      ETCD_DATA_DIR: "/var/lib/milvus/etcd"
+    depends_on:
+      - minio
+    ports:
+      - "19530:19530"  
+      - "9091:9091"
+    volumes:
+      - ./milvus_data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+    restart: unless-stopped
