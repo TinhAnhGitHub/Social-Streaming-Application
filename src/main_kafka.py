@@ -4,6 +4,7 @@ from pyspark.sql.functions import col, from_json
 from pyspark.sql.types import (
     StructType, StructField, StringType, IntegerType, TimestampType, MapType
 )
+import os
 
 from ultis.spark import get_spark_session
 from processing.cleaner import clean_text_udf
@@ -90,11 +91,14 @@ def run_spark_stream(topic: str, kafka_bootstrap: str = "localhost:9092", use_ka
     df = process_stream(df)
 
     if use_kafka:
+        kafka_save_dir = r"data/kafka/{topic}"
+        os.makedirs(kafka_save_dir, exist_ok=True)
         query = (
             df.writeStream
-            .format("kafka")
-            .option("kafka.bootstrap.servers", "localhost:9092")
-            .option("topic", "processed_topic")
+            .format("json")
+            .option("path", kafka_save_dir)
+            .option("checkpointLocation", "data/kafka_checkpoint")
+            .outputMode("append")
             .start()
         )
         query.awaitTermination()

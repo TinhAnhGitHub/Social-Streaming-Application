@@ -12,18 +12,12 @@ docker exec -it spark-master spark-submit --master spark://spark-master:7077 /op
 
 To listen to reddit submissions
 ```bash
-docker exec -it spark-master \
-  spark-submit \
-  --master spark://spark-master:7077 \
-  /opt/spark-apps/main_kafka.py --mode submissions
+docker exec -it spark-master spark-submit --master spark://spark-master:7077 /opt/spark-apps/main_kafka.py --topic reddit.submissions
 ```
 
 To listen to reddit comments
 ```bash
-docker exec -it spark-master \
-  spark-submit \
-  --master spark://spark-master:7077 \
-  /opt/spark-apps/main_kafka.py --mode comments
+docker exec -it spark-master spark-submit --master spark://spark-master:7077 /opt/spark-apps/main_kafka.py --topic reddit.comments
 ```
 
 After finishing
