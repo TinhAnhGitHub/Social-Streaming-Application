@@ -49,7 +49,7 @@ Now you can open:
 Run the provided script to create an index with the correct mapping:
 
 ```bash
-python src/create_index_1.py
+python src/create_index.py
 ```
 
 Example output:
@@ -68,7 +68,7 @@ Index 'social_stream' created successfully!
 To populate Elasticsearch with example data, run:
 
 ```bash
-python src/inject_1.py
+python src/inject.py
 ```
 
 Expected output:
@@ -134,7 +134,7 @@ docker-compose down -v
 
 | Issue | Cause | Solution |
 |-------|--------|-----------|
-| `BadRequestError(400)` | Wrong mapping format | Check JSON syntax in `create_index_1.py` |
+| `BadRequestError(400)` | Wrong mapping format | Check JSON syntax in `create_index.py` |
 | Kibana asks for enrollment token | Security is still enabled | Ensure `xpack.security.enabled=false` in `docker-compose.yml` |
 | Cannot connect to `localhost:9200` | Container not running or port conflict | Run `docker ps` and ensure port `9200` is not used by another service |
 | “Name must match one or more data streams” in Kibana | Wrong index pattern | Use `social_stream*` instead of `filebeat-*` |
@@ -146,8 +146,8 @@ docker-compose down -v
 | File | Description |
 |------|-------------|
 | `docker-compose.yml` | Docker setup for Elasticsearch & Kibana |
-| `src/create_index_1.py` | Creates a clean index and mapping |
-| `src/inject_1.py` | Loads sample JSON data into Elasticsearch |
+| `src/create_index.py` | Creates a clean index and mapping |
+| `src/inject.py` | Loads sample JSON data into Elasticsearch |
 | `data/sample.json` | Example dataset for ingestion |
 
 ---
