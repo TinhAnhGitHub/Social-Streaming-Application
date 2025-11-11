@@ -7,6 +7,7 @@ services:
       - "9092:9092"
       - "9101:9101"
     environment:
+      KAFKA_CREATE_TOPICS: "reddit.submissions:3:1,reddit.comments:3:1"
       KAFKA_NODE_ID: 1
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
       KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092'
@@ -25,6 +26,8 @@ services:
       # Replace CLUSTER_ID with a unique base64 UUID using "bin/kafka-storage.sh random-uuid"
       # See https://docs.confluent.io/kafka/operations-tools/kafka-tools.html#kafka-storage-sh
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    networks:
+      - kafka-networks
 
   schema-registry:
     image: confluentinc/cp-schema-registry:8.0.0
@@ -38,6 +41,8 @@ services:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
       SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'broker:29092'
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    networks:
+      - kafka-networks
 
   connect:
     image: cnfldemos/kafka-connect-datagen:0.6.4-7.6.0
@@ -94,6 +99,8 @@ services:
       - ksqldb-server
     entrypoint: /bin/sh
     tty: true
+    networks:
+      - kafka-networks
 
   ksql-datagen:
     image: confluentinc/ksqldb-examples:8.0.0
@@ -116,6 +123,8 @@ services:
       STREAMS_BOOTSTRAP_SERVERS: broker:29092
       STREAMS_SCHEMA_REGISTRY_HOST: schema-registry
       STREAMS_SCHEMA_REGISTRY_PORT: 8081
+    networks:
+      - kafka-networks
 
   rest-proxy:
     image: confluentinc/cp-kafka-rest:8.0.0
@@ -131,6 +140,9 @@ services:
       KAFKA_REST_BOOTSTRAP_SERVERS: 'broker:29092'
       KAFKA_REST_LISTENERS: "http://0.0.0.0:8082"
       KAFKA_REST_SCHEMA_REGISTRY_URL: 'http://schema-registry:8081'
+    networks:
+      - kafka-networks
+
 
   flink-sql-client:
     image: cnfldemos/flink-sql-client-kafka:1.19.1-scala_2.12-java17
@@ -140,6 +152,8 @@ services:
     container_name: flink-sql-client
     environment:
       FLINK_JOBMANAGER_HOST: flink-jobmanager
+    networks:
+      - kafka-networks
 
   flink-jobmanager:
     image: cnfldemos/flink-kafka:1.19.1-scala_2.12-java17
@@ -153,6 +167,8 @@ services:
       FLINK_PROPERTIES=
       jobmanager.rpc.address: flink-jobmanager
       rest.bind-port: 9081
+    networks:
+      - kafka-networks
 
   flink-taskmanager:
     image: cnfldemos/flink-kafka:1.19.1-scala_2.12-java17
@@ -167,6 +183,8 @@ services:
       FLINK_PROPERTIES=
       jobmanager.rpc.address: flink-jobmanager
       taskmanager.numberOfTaskSlots: 10
+    networks:
+      - kafka-networks
   
 
   postgres:
@@ -182,6 +200,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - kafka-networks
 
   redis:
     image: redis:7
@@ -192,6 +212,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - kafka-networks
 
   prefect-server:
     image: prefecthq/prefect:3-latest
@@ -211,6 +233,8 @@ services:
     command: prefect server start --no-services
     ports:
       - "4200:4200"
+    networks:
+      - kafka-networks
 
   prefect-services:
     image: prefecthq/prefect:3-latest
@@ -227,6 +251,8 @@ services:
       PREFECT_REDIS_MESSAGING_PORT: 6379
       PREFECT_REDIS_MESSAGING_DB: 0
     command: prefect server services start
+    networks:
+      - kafka-networks
 
   prefect-worker:
     image: prefecthq/prefect:3-latest
@@ -236,6 +262,8 @@ services:
     environment:
       PREFECT_API_URL: http://prefect-server:4200/api
     command: prefect worker start --pool local-pool
+    networks:
+      - kafka-networks
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
@@ -256,6 +284,8 @@ services:
       - es_data:/usr/share/elasticsearch/data
     ports:
       - "9200:9200"
+    networks:
+      - kafka-networks
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.13.4
@@ -266,6 +296,128 @@ services:
       - "5601:5601"
     depends_on:
       - elasticsearch
+    networks:
+      - kafka-networks
+
+
+  spark-master:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: spark-master
+    hostname: spark-master
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+    volumes:
+      - ./src:/app/src
+      - spark_data:/opt/spark-data
+      - ./app/spark:/opt/spark-apps
+    
+    networks:
+      - kafka-networks
+    command: bash -c "/opt/spark/sbin/start-master.sh && tail -f /dev/null"
+    
+
+  
+  spark-worker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: spark-worker-1
+    hostname: spark-worker-1
+    depends_on:
+      - spark-master
+    ports:
+      - "8084:8081"  
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=8g
+      - SPARK_WORKER_WEBUI_PORT=8081
+    volumes:
+      - ./src:/app/src
+      - spark_data:/opt/spark-data
+    networks:
+      - kafka-networks
+    command: bash -c "/opt/spark/sbin/start-worker.sh spark://spark-master:7077 && tail -f /dev/null"
+  spark-streaming-submissions:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: spark-streaming-submissions
+    depends_on:
+      - spark-master
+      - broker
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - KAFKA_BOOTSTRAP_SERVERS=broker:29092
+      - SPARK_SAVE_DIR=/opt/spark-data
+    volumes:
+      - ./src:/app/src
+      - spark_data:/opt/spark-data
+    networks:
+      - kafka-networks
+    command: |
+      bash -c "uv run src/spark/streaming_es.py   --topic reddit.submissions   --bootstrap broker:29092   --save-dir /opt/spark-data   --es-index reddit_submissions  --es-id-field id"
+    # command: bash -c "tail -f /dev/null"
+    restart: unless-stopped
+
+  spark-streaming-comments:
+    build:
+      context: .
+      dockerfile: Dockerfile.spark
+    container_name: spark-streaming-comments
+    depends_on:
+      - spark-master
+      - broker
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - KAFKA_BOOTSTRAP_SERVERS=broker:29092
+      - SPARK_SAVE_DIR=/opt/spark-data
+    volumes:
+      - ./src:/app/src
+      - spark_data:/opt/spark-data
+    networks:
+      - kafka-networks
+    command: |
+      bash -c "uv run src/spark/streaming_es.py   --topic reddit.comments   --bootstrap broker:29092   --save-dir /opt/spark-data   --es-index reddit_comments  --es-id-field id"
+    # command: bash -c "tail -f /dev/null"
+    restart: unless-stopped
+  prefect-custom-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.prefect-worker
+    container_name: prefect-custom-worker 
+    depends_on:
+      prefect-server:
+        condition: service_started
+      broker:
+        condition: service_started
+    environment:
+      PREFECT_API_URL: http://prefect-server:4200/api
+      KAFKA_BOOTSTRAP_SERVERS: broker:29092
+      KAFKA_CLIENT_ID: reddit-producer
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET}
+      REDDIT_USER_AGENT: ${REDDIT_USER_AGENT}
+      REDDIT_SUBREDDIT_LIMIT: 5
+      REDDIT_POSTS_PER_SUBREDDIT: 10
+      REDDIT_COMMENT_LIMIT: 20
+      REDDIT_POST_SORT: hot
+      TOPIC_REDDIT_SUBMISSIONS: reddit.submissions
+      TOPIC_REDDIT_COMMENTS: reddit.comments
+    volumes:
+      - ./src:/app/src
+    networks:
+      - kafka-networks
+    command: bash -c "sleep 30 && uv run prefect worker start --pool default & uv run src/flow.py"
 
 volumes:
   postgres_data:
@@ -282,3 +434,9 @@ volumes:
       device: ./infra/redis_data
   es_data:
     driver: local
+  spark_data:
+    driver: local
+
+networks:
+  kafka-networks:
+    driver: bridge

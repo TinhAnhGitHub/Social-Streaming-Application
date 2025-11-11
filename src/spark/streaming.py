@@ -1,5 +1,6 @@
 import argparse
 from pyspark.sql.functions import col, from_json
+from pyspark.sql import DataFrame
 from pyspark.sql.types import (
     StructType, StructField, StringType, IntegerType, TimestampType, MapType
 )
@@ -9,12 +10,11 @@ ROOT_DIR = os.path.abspath(os.path.join(__file__, '../../..'))
 
 sys.path.insert(0,ROOT_DIR)
 
+from src.spark.utils.spark import get_spark_session
+from src.spark.processing.cleaner import clean_text_udf
+from src.spark.processing.keyword_extractor import keyword_extractor_udf
+from src.spark.processing.embedder import embedder_udf
 
-
-from app.spark.utils.spark import get_spark_session
-from app.spark.processing.cleaner import clean_text_udf
-from app.spark.processing.keyword_extractor import keyword_extractor_udf
-from app.spark.processing.embedder import embedder_udf
 
 
 
@@ -63,12 +63,12 @@ def process_stream(df):
     """
     Apply the text cleaning, keyword extraction, and embedding to body.
     """
+    df = df.withColumn("id", col("payload.id"))
     df = df.withColumn("body", col("payload.body"))
     df = df.withColumn("clean_body", clean_text_udf(col("body")))
     df = df.withColumn("keywords", keyword_extractor_udf(col("clean_body")))
     df = df.withColumn("embedding", embedder_udf(col("clean_body")))
     return df
-
 
 # ===== MAIN DRIVER =====
 def run_spark_stream(

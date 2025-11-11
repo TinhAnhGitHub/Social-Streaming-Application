@@ -8,7 +8,7 @@ import prawcore
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from .schema import RedditCommentEvent, RedditSubmissionEvent
-from app.config import RedditSettings
+from src.config import RedditSettings
 from prefect.logging import get_logger
 
 logger = get_logger()

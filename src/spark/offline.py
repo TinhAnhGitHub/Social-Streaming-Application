@@ -7,10 +7,10 @@ ROOT_DIR = os.path.abspath(
 print(ROOT_DIR)
 sys.path.insert(0,ROOT_DIR)
 
-from app.spark.utils.spark import get_spark_session
-from app.spark.processing.cleaner import clean_text_udf
-from app.spark.processing.keyword_extractor import keyword_extractor_udf
-from app.spark.processing.embedder import embedder_udf
+from src.spark.utils.spark import get_spark_session
+from src.spark.processing.cleaner import clean_text_udf
+from src.spark.processing.keyword_extractor import keyword_extractor_udf
+from src.spark.processing.embedder import embedder_udf
 from pyspark.sql.functions import col
 
 def main():

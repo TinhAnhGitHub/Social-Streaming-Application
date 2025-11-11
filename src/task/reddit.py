@@ -2,20 +2,14 @@ import time
 from datetime import datetime, timezone
 from confluent_kafka import Producer
 from prefect import task
-from app.kafka.publisher import KafkaPublisher, build_envelope
-from app.clients.reddit_client import RedditClient
+from src.kafka.publisher import KafkaPublisher, build_envelope
+from src.clients.reddit_client import RedditClient
 from prefect.cache_policies import NO_CACHE
-from app.config import load_settings
+from src.config import load_settings
 from prefect.logging import get_logger
 
 
 logger = get_logger()
-
-
-
-
-
-
 
 @task(
     name="Fetch and Publish Reddit Events",

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 from typing import Any, Callable, Mapping, MutableMapping, Optional, Sequence, Literal
 from datetime import datetime
-from app.clients.schema import KafkaEnvelope, RedditCommentEvent, RedditSubmissionEvent
+from src.clients.schema import KafkaEnvelope, RedditCommentEvent, RedditSubmissionEvent
 from confluent_kafka import Producer, KafkaError, KafkaException
 from prefect.logging import get_logger
 

@@ -7,11 +7,11 @@ ROOT_DIR = os.path.abspath(
 print(ROOT_DIR)
 sys.path.insert(0, ROOT_DIR)
 
-from app.config import load_settings
-from app.clients.reddit_client import RedditClient, RedditEvent
+from src.config import load_settings
+from src.clients.reddit_client import RedditClient, RedditEvent
 from confluent_kafka import Producer
-from app.kafka.publisher import KafkaPublisher
-from app.task.reddit import fetch_and_publish_reddit_events
+from src.kafka.publisher import KafkaPublisher
+from src.task.reddit import fetch_and_publish_reddit_events
 from prefect.logging import get_logger
 from prefect import serve
 
@@ -57,16 +57,10 @@ def streaming_flow():
     print("Kafka publisher initialized successfully")
 
 
-
     fetch_and_publish_reddit_events(reddit_client, kafka_publisher)
 
     return
 
 
 if __name__ == "__main__":
-    # streaming_flow.serve(
-    #     name="reddit-trending-ingestion",
-    #     tags=["reddit", "kafka", "trending"],
-    #     # cron="*/5 * * * *"   # Every 5 minutes
-    # )
     streaming_flow()

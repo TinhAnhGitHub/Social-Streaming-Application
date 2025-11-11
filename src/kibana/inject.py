@@ -13,7 +13,7 @@ RESET = "\033[0m"
 # ========== CONFIG ==========
 es = Elasticsearch("http://localhost:9200")
 INDEX_NAME = "social_stream"
-WATCH_DIR = "tmp/spark_data/kafka/output/reddit.submissions"
+WATCH_DIR = "/home/tinhanhnguyen/Desktop/HK7/BigData/big_project/data/spark/kafka/output/reddit.submissions"
 PROCESSED_DIR = os.path.join(WATCH_DIR, "processed")
 SLEEP_INTERVAL = 5  # seconds between checks
 
