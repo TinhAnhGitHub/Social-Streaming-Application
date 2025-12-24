@@ -1,0 +1,11 @@
+FROM confluentinc/cp-kafka:8.0.0
+
+
+USER root
+
+RUN mkdir -p /usr/app \
+ && curl -L -o /usr/app/jmx_prometheus_javaagent.jar \
+    https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/0.20.0/jmx_prometheus_javaagent-0.20.0.jar \
+ && chmod 644 /usr/app/jmx_prometheus_javaagent.jar
+
+USER appuser

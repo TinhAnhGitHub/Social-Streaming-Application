@@ -76,7 +76,7 @@ def process_stream(df):
     return df
 
 
-es_client = Elasticsearch(ES_HOST)
+es_client = Elasticsearch(ES_HOST, timeout=30)
 
 
 def write_batch(es_index_name: str, es_id_field: str, batch_size: int, batch_df: DataFrame, batch_id: int) -> None:

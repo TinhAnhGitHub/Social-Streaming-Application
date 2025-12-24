@@ -1,0 +1,2546 @@
+===== src/README.md =====
+# 🚀 Reddit Prefect Producer
+
+> **Stream trending Reddit content to Kafka with orchestrated reliability**
+
+A production-ready data ingestion pipeline that discovers trending Reddit content and publishes structured events to Apache Kafka, orchestrated by Prefect for reliability and observability.
+
+---
+
+## 🎯 What It Does
+
+```
+Reddit API → Prefect Tasks → Kafka Topics → Your Data Pipeline
+   📡            ⚙️              📨              🔮
+```
+
+- **Discovers** trending subreddits and hot content using Reddit's public API
+- **Normalizes** posts and comments into strongly-typed data models
+- **Publishes** events to Kafka with retry logic and delivery guarantees
+- **Orchestrates** execution with Prefect for monitoring and scheduling
+- **Tracks** progress with watermarking to avoid duplicate processing
+
+---
+
+## 🏗️ Architecture
+
+### System Layers
+
+```
+┌─────────────────────────────────────────────┐
+│          Orchestration Layer                │
+│            (Prefect Flow)                   │
+└─────────────────┬───────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────┐
+│             Task Layer                      │
+│   (Rate Limiting, Logic)     │
+└─────┬───────────────────────────┬───────────┘
+      │                           │
+┌─────▼─────────┐         ┌───────▼──────────┐
+│ Reddit Client │         │ Kafka Publisher  │
+│   (+ Retry)   │         │  (+ Callbacks)   │
+└───────────────┘         └──────────────────┘
+```
+
+### Key Components
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| 🌐 **Reddit Client** | Fetches trending content with retry logic | `app/clients/reddit_client.py` |
+| 📊 **Schema Models** | Pydantic models for type safety | `app/clients/schema.py` |
+| 📤 **Kafka Publisher** | Publishes with delivery callbacks | `app/kafka/publisher.py` |
+| ⚡ **Ingestion Task** | Core fetch-publish loop | `app/task/reddit.py` |
+| 🎭 **Prefect Flow** | Orchestration and dependency wiring | `app/flow.py` |
+| ⚙️ **Configuration** | Environment-driven settings | `app/config.py` |
+
+---
+
+## 📦 Data Model
+
+### Message Envelope
+
+Every event is wrapped in a consistent envelope structure:
+
+```json
+{
+  "entity_type": "reddit_submission",
+  "source": "reddit",
+  "mode": "trending",
+  "emitted_at": "2025-01-01T12:00:00+00:00",
+  "payload": { /* event data */ },
+  "metadata": {
+    "subreddit": "python",
+    "post_sort": "hot"
+  }
+}
+```
+
+### Event Types
+
+#### 📝 Submission Event
+```json
+{
+  "id": "abc123",
+  "subreddit": "python",
+  "author": "someuser",
+  "title": "Interesting post",
+  "body": "Post content...",
+  "created_utc": "2025-01-01T11:59:00+00:00",
+  "score": 100,
+  "num_comments": 5,
+  "url": "https://reddit.com/...",
+  "permalink": "/r/python/comments/abc123/...",
+  "flair": "Discussion"
+}
+```
+
+#### 💬 Comment Event
+Similar structure with parent linkage and comment-specific fields.
+
+---
+
+## 🎨 Architectural Patterns
+
+- **🧩 Layered Architecture** - Clear separation of concerns
+- **📮 Envelope Pattern** - Consistent message structure
+- **🌊 Event-Driven Streaming** - Decoupled producer/consumer
+- **🔄 Retry with Exponential Backoff** - Resilience to failures
+- **💉 Dependency Injection** - Testable and maintainable
+- **📋 Configuration as Code** - Type-safe environment settings
+
+---
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+Create a `.env` file from `.env.example`:
+
+#### Reddit Settings
+```bash
+REDDIT_CLIENT_ID=your_client_id
+REDDIT_CLIENT_SECRET=your_secret
+REDDIT_USER_AGENT=MyApp/1.0
+REDDIT_SUBREDDIT_LIMIT=5          # Trending subreddits to fetch
+REDDIT_POSTS_PER_SUBREDDIT=10     # Posts per subreddit
+REDDIT_COMMENT_LIMIT=20           # Comments per post (0=disabled)
+REDDIT_POST_SORT=hot              # hot, new, top, or rising
+```
+
+#### Kafka Settings
+```bash
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+KAFKA_CLIENT_ID=reddit-producer
+TOPIC_REDDIT_SUBMISSIONS=reddit.submissions
+TOPIC_REDDIT_COMMENTS=reddit.comments
+```
+
+---
+
+## 🚀 Quick Start
+
+### Installation
+
+```bash
+# Install dependencies
+uv sync
+```
+
+### Run Locally
+
+```bash
+# Execute the flow
+uv run app/flow.py
+```
+
+### Validate with Consumer
+
+```bash
+# Run the reference consumer to see messages
+uv run consumer/consumer.py
+```
+
+---
+
+## 🔄 Control Flow
+
+```
+1. Load Configuration
+        ↓
+2. Initialize Clients (Reddit + Kafka)
+        ↓
+3. Discover Trending Subreddits
+        ↓
+4. For Each Subreddit:
+   ├─ Fetch Posts (sorted by hot/new/top/rising)
+   ├─ Filter by Watermark
+   ├─ Serialize to Submission Event
+   ├─ Wrap in Envelope
+   ├─ Publish to Kafka
+   └─ For Each Post:
+      ├─ Fetch Comments (limited)
+      ├─ Serialize to Comment Events
+      └─ Publish to Kafka
+        ↓
+5. Flush & Close Publisher
+```
+
+---
+
+## 🛡️ Reliability Features
+
+### Error Handling
+
+| Error Type | Strategy | Implementation |
+|------------|----------|----------------|
+| 🌐 Reddit API Failures | Exponential backoff retry | `tenacity` with max attempts |
+| 📤 Kafka Publish Failures | Delivery callbacks + retry | Retriable vs. fatal error classification |
+| 💾 Buffer Full | Backpressure detection | Treated as retriable, automatic retry |
+
+### Observability
+
+- **📊 Prefect Logs** - Flow and task execution tracking
+- **🔍 Structured Logging** - Event metadata and errors
+- **✅ Delivery Callbacks** - Per-message confirmation
+- **🏷️ Consumer Validation** - Reference implementation for testing
+
+---
+
+## 🎛️ Operations & Tuning
+
+### Rate Limiting
+
+Conservative sleep intervals between API calls respect Reddit's public API limits. Adjust in `app/task/reddit.py` as needed.
+
+### Throughput
+
+Scale up ingestion by increasing:
+- `REDDIT_SUBREDDIT_LIMIT` - More subreddits
+- `REDDIT_POSTS_PER_SUBREDDIT` - More posts per subreddit
+- `REDDIT_COMMENT_LIMIT` - More comments per post
+
+⚠️ Ensure Kafka and downstream systems can handle the increased load.
+---
+
+## 🔧 Extensibility
+
+### Add New Event Types
+
+1. Define Pydantic model in `app/clients/schema.py`
+2. Extend envelope builder in `app/kafka/publisher.py`
+3. Route events through the task
+
+### Add New Sources
+
+1. Create client module (similar to `RedditClient`)
+2. Use same envelope structure
+3. Add dedicated task or extend existing one
+
+### Custom Metadata & Headers
+
+The publisher accepts headers and metadata for:
+- Downstream routing
+- Filtering and indexing
+- Audit trails
+
+---
+
+## 📁 Project Structure
+
+```
+reddit-prefect-producer/
+├── app/
+│   ├── flow.py                  # 🎭 Prefect flow definition
+│   ├── config.py                # ⚙️ Configuration management
+│   ├── clients/
+│   │   ├── reddit_client.py     # 🌐 Reddit API wrapper
+│   │   └── schema.py            # 📊 Pydantic models
+│   ├── kafka/
+│   │   └── publisher.py         # 📤 Kafka publishing logic
+│   └── task/
+│       └── reddit.py            # ⚡ Main ingestion task
+│       
+├── consumer/
+│   └── consumer.py              # ✅ Reference consumer
+├── .env.example                 # 📋 Configuration template
+└── README.md                    # 📖 This file
+```
+
+---
+
+## ⚠️ Limitations & Considerations
+
+### Ordering
+Kafka preserves order **per partition**, not globally. Events for the same key remain ordered within a partition.
+
+### Delivery Semantics
+- **Current**: At-least-once delivery
+- **Exactly-once**: Requires additional Kafka configuration (idempotent producer, transactions)
+
+### API Variability
+Reddit's public API may change or enforce rate limits. Retry policies mitigate but don't eliminate this risk.
+
+---
+
+
+
+## 📚 Additional Resources
+
+- [Prefect Documentation](https://docs.prefect.io/)
+- [Confluent Kafka Python](https://docs.confluent.io/kafka-clients/python/current/overview.html)
+- [PRAW (Reddit API)](https://praw.readthedocs.io/)
+- [Pydantic](https://docs.pydantic.dev/)
+
+---
+
+
+===== src/flow.py =====
+from prefect import flow
+import sys
+import os
+ROOT_DIR = os.path.abspath(
+    os.path.join(__file__, '../..')
+)
+print(ROOT_DIR)
+sys.path.insert(0, ROOT_DIR)
+
+from src.config import load_settings
+from src.clients.reddit_client import RedditClient, RedditEvent
+from confluent_kafka import Producer
+from src.kafka.publisher import KafkaPublisher
+from src.task.reddit import fetch_and_publish_reddit_events
+from prefect.logging import get_logger
+from prefect import serve
+
+
+
+logger = get_logger()
+logger.setLevel('INFO')
+@flow(
+    name="Reddit Trending Ingestion",
+    description="Fetch trending Reddit posts and comments, publish to Kafka",
+    retries=1,
+    retry_delay_seconds=60,
+)
+def streaming_flow():
+    """
+    Main Prefect flow for ingesting trending Reddit data.
+    
+    This flow:
+    1. Initializes Reddit and Kafka clients
+    2. Fetches trending subreddits
+    3. Fetches posts and comments from each subreddit
+    4. Publishes all events to Kafka topics
+    5. Implements rate limiting to respect Reddit API limits
+    
+    Returns:
+        Statistics about the ingestion run
+    """
+    settings = load_settings()
+    reddit_client = RedditClient(settings.reddit)
+    print("Reddit client initialized successfully")
+    
+    producer_config = settings.kafka.build_producer_config()
+    print(f"{producer_config=}")
+    
+    producer = Producer(producer_config)
+    kafka_publisher = KafkaPublisher(
+        producer=producer,
+        max_attempts=5,
+        wait_initial=1.0,
+        wait_max=10.0,
+        delivery_timeout=10.0,
+    )
+    print("Kafka publisher initialized successfully")
+
+
+    fetch_and_publish_reddit_events(reddit_client, kafka_publisher)
+
+    return
+
+
+if __name__ == "__main__":
+    streaming_flow()
+
+
+===== src/task/state.py =====
+from prefect.variables import Variable
+from datetime import datetime, timezone
+
+def get_last_timestamp() -> datetime | None:
+    try:
+        ts = Variable.get("last_reddit_created_utc")
+        return datetime.fromisoformat(ts) #type:ignore
+    except Exception:
+        return None
+
+def set_last_timestamp(ts: datetime):
+    Variable.set("last_reddit_created_utc", ts.isoformat())
+
+
+
+
+===== src/task/reddit.py =====
+import time
+from datetime import datetime, timezone
+from confluent_kafka import Producer
+from prefect import task
+from src.kafka.publisher import KafkaPublisher, build_envelope
+from src.clients.reddit_client import RedditClient
+from prefect.cache_policies import NO_CACHE
+from src.config import load_settings
+from prefect.logging import get_logger
+
+
+logger = get_logger()
+
+@task(
+    name="Fetch and Publish Reddit Events",
+    retries=3,
+    retry_delay_seconds=10,
+    timeout_seconds=3600, 
+    cache_policy=NO_CACHE
+)
+def fetch_and_publish_reddit_events(
+    reddit_client: RedditClient,
+    kafka_publisher: KafkaPublisher
+):
+    """
+    Fetch reddit events and publish them to kafka with rate limit
+    Rate limiting strategy:
+    - Base delay between API calls: 2 seconds (Reddit rate limit: ~60 requests/min)
+    - After fetching subreddits: 1 second delay
+    - After each post fetch: 2 seconds delay
+    - After each comment batch: 1 second delay
+
+
+    """
+    settings = load_settings()
+
+    emitted_at = datetime.now(timezone.utc)
+
+    try:
+        logger.info("Fetching trending subreddits...")
+        subreddits = reddit_client.fetch_trending_subreddits(
+            limit=settings.reddit.REDDIT_SUBREDDIT_LIMIT
+        )
+
+        time.sleep(1)
+        logger.info(f"Found {len(subreddits)} trending subreddits: {subreddits}")
+
+
+
+
+        for subreddit_idx, subreddit_name in enumerate(subreddits, 1):
+            logger.info(
+                f"Processing subreddit {subreddit_idx}/{len(subreddits)}: r/{subreddit_name}"
+            )
+            posts = list(
+                reddit_client._iter_subreddit_posts(
+                    subreddit_name,
+                    limit=settings.reddit.REDDIT_POSTS_PER_SUBREDDIT,
+                    post_sort=settings.reddit.REDDIT_POST_SORT,
+                )
+            )
+
+            logger.info(f"Fetched {len(posts)} posts from r/{subreddit_name}")
+            time.sleep(1)
+            for  submission in posts:
+                try:
+                    submission_event = reddit_client._serialize_submission(submission)
+                    created_utc = submission_event.created_utc
+                   
+                            
+                    envelope = build_envelope(
+                        entity_type="reddit_submission",
+                        source="reddit",
+                        payload=submission_event,
+                        emitted_at=emitted_at,
+                        metadata={
+                            "subreddit": subreddit_name,
+                            "post_sort": settings.reddit.REDDIT_POST_SORT,
+                        }
+                    )
+                    logger.info(f"publising...")
+
+                    kafka_publisher.publish(
+                        topic=settings.topics.TOPIC_REDDIT_SUBMISSIONS,
+                        key=submission_event.id,
+                        payload=envelope,
+                        headers={"source": "reddit", "entity_type": "submission"},
+                    )
+
+                    logger.info(
+                        f"Published submission {submission_event.id} from r/{subreddit_name}"
+                    )
+
+                    if settings.reddit.REDDIT_COMMENT_LIMIT > 0:
+                        logger.info(
+                            f"Fetching comments for submission {submission_event.id}..."
+                        )
+                        comments = list(
+                            reddit_client._iter_submission_comments(
+                                submission,
+                                limit=settings.reddit.REDDIT_COMMENT_LIMIT,
+                            )
+                        )
+
+                        for comment_event in comments:
+                            try:
+
+                                logger.debug(f"publising in coments...")
+                                comment_envelope = build_envelope(
+                                    entity_type="reddit_comment",
+                                    source="reddit",
+                                    payload=comment_event,
+                                    emitted_at=emitted_at,
+                                    metadata={
+                                        "subreddit": subreddit_name,
+                                        "submission_id": submission_event.id,
+                                    }
+                                )
+                                
+                                kafka_publisher.publish(
+                                    topic=settings.topics.TOPIC_REDDIT_COMMENTS,
+                                    key=comment_event.id,
+                                    payload=comment_envelope,
+                                    headers={"source": "reddit", "entity_type": "comment"},
+                                )
+                            except Exception as e:
+                                logger.info(
+                                    f"Failed to publish comment {comment_event.id}: {e}"
+                                )
+                        time.sleep(1)
+                        logger.info(
+                            f"Published {len(comments)} comments for submission {submission_event.id}"
+                        )
+                except Exception as e:
+                    raise e
+                    
+            logger.info(
+                f"Completed r/{subreddit_name}: "
+            )
+        kafka_publisher.flush(timeout=30.0)
+
+
+        logger.info(
+            "Reddit ingestion completed successfully",
+        )
+    except Exception as e:
+        logger.exception(f"Reddit ingestion failed: {e}")
+        raise
+    
+    finally:
+        try:
+            kafka_publisher.close(timeout=10.0)
+        except Exception as e:
+            logger.info(f"Error closing Kafka publisher: {e}")
+    
+
+
+
+===== src/spark/utils/__init__.py =====
+
+
+===== src/spark/utils/spark.py =====
+from pyspark.sql import SparkSession
+import yaml
+
+def get_spark_session(app_name="SparkPreprocessing"):
+    master = "local[*]"
+    partitions = 4
+
+    spark = (
+          SparkSession.builder
+          .appName(app_name) #type:ignore
+          .master(master)
+          .config("spark.sql.shuffle.partitions", partitions)
+          .config(
+              "spark.jars.packages",
+              ",".join([
+                  "org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.1",
+                  "org.apache.spark:spark-token-provider-kafka-0-10_2.13:4.0.1",
+                  "org.elasticsearch:elasticsearch-spark-30_2.13:8.13.4"
+              ])
+          )
+          .config("spark.es.nodes", "elasticsearch")
+          .config("spark.es.port",  "9200")
+          .config("spark.es.nodes.wan.only", "true")
+          .config("spark.es.batch.size.entries", 1000)
+          .config("spark.es.batch.write.refresh", "false")
+          .getOrCreate()
+      )
+    return spark
+
+
+
+
+
+===== src/spark/offline.py =====
+import os
+import sys
+
+ROOT_DIR = os.path.abspath(
+    os.path.join(__file__, '../../..')
+)
+print(ROOT_DIR)
+sys.path.insert(0,ROOT_DIR)
+
+from src.spark.utils.spark import get_spark_session
+from src.spark.processing.cleaner import clean_text_udf
+from src.spark.processing.keyword_extractor import keyword_extractor_udf
+from src.spark.processing.embedder import embedder_udf
+from pyspark.sql.functions import col
+
+def main():
+    spark = get_spark_session("SparkPreprocessing")
+
+    df = spark.read.option("multiLine", True).json(r"/opt/spark-data/raw/sample.json")
+    df.printSchema()
+
+    df = df.withColumn("clean_body", clean_text_udf(col("payload.body")))
+    df = df.withColumn("keywords", keyword_extractor_udf(col("clean_body")))
+    df = df.withColumn("embedding", embedder_udf(col("clean_body")))
+
+    df.write.mode("overwrite").json(r"/opt/spark-data/processed/")
+    spark.stop()
+
+if __name__ == "__main__":
+    main()
+
+
+===== src/spark/streaming_es.py =====
+import argparse
+from pyspark.sql.functions import col, from_json
+from pyspark.sql import DataFrame
+from pyspark.sql.types import (
+    StructType, StructField, StringType, IntegerType, TimestampType, MapType
+)
+import os
+import sys
+from functools import partial
+ROOT_DIR = os.path.abspath(os.path.join(__file__, '../../..'))
+
+sys.path.insert(0,ROOT_DIR)
+
+from src.spark.utils.spark import get_spark_session
+from src.spark.processing.cleaner import clean_text_udf
+from src.spark.processing.keyword_extractor import keyword_extractor_udf
+from src.spark.processing.embedder import embedder_udf
+
+from elasticsearch import Elasticsearch
+from elasticsearch.helpers import bulk
+from src.kibana.create_index import ES_HOST, create_comments_index, create_submissions_index, ensure_index_exists
+
+
+
+
+# ===== PAYLOAD SCHEMAS =====
+payload_submission_schema = StructType([
+    StructField("id", StringType(), True),
+    StructField("subreddit", StringType(), True),
+    StructField("author", StringType(), True),
+    StructField("title", StringType(), True),
+    StructField("body", StringType(), True),
+    StructField("created_utc", TimestampType(), True),
+    StructField("score", IntegerType(), True),
+    StructField("num_comments", IntegerType(), True),
+    StructField("url", StringType(), True),
+    StructField("permalink", StringType(), True),
+    StructField("flair", StringType(), True),
+])
+
+payload_comment_schema = StructType([
+    StructField("id", StringType(), True),
+    StructField("submission_id", StringType(), True),
+    StructField("parent_id", StringType(), True),
+    StructField("subreddit", StringType(), True),
+    StructField("author", StringType(), True),
+    StructField("body", StringType(), True),
+    StructField("created_utc", TimestampType(), True),
+    StructField("score", IntegerType(), True),
+    StructField("permalink", StringType(), True),
+    StructField("controversiality", IntegerType(), True),
+])
+
+# ===== ENVELOPE WRAPPER =====
+def build_envelope_schema(payload_schema):
+    return StructType([
+        StructField("entity_type", StringType(), True),
+        StructField("source", StringType(), True),
+        StructField("mode", StringType(), True),
+        StructField("payload", payload_schema, True),
+        StructField("emitted_at", TimestampType(), True),
+        StructField("metadata", MapType(StringType(), StringType()), True),
+    ])
+
+
+# ===== PROCESSING FUNCTION =====
+def process_stream(df):
+    """
+    Apply the text cleaning, keyword extraction, and embedding to body.
+    """
+    df = df.withColumn("id", col("payload.id"))
+    df = df.withColumn("body", col("payload.body"))
+    df = df.withColumn("clean_body", clean_text_udf(col("body")))
+    df = df.withColumn("keywords", keyword_extractor_udf(col("clean_body")))
+    df = df.withColumn("embedding", embedder_udf(col("clean_body")))
+    return df
+
+
+es_client = Elasticsearch(ES_HOST)
+
+
+def write_batch(es_index_name: str, es_id_field: str, batch_size: int, batch_df: DataFrame, batch_id: int) -> None:
+    actions = []
+
+    for row in batch_df.toLocalIterator():
+        record = row.asDict(recursive=True)
+        es_id = record.get(es_id_field)
+        if es_id is None:
+            continue
+
+        actions.append({
+            "_op_type": "update",
+            "_index": es_index_name,
+            "_id": es_id,
+            "doc": record,
+            "doc_as_upsert": True,
+        })
+
+    record_count = len(actions)
+    if record_count == 0:
+        print(f"Batch {batch_id}: No records to write")
+        return
+
+    print(f"Batch {batch_id}: Writing {record_count} records to {es_index_name}")
+
+    try:
+        bulk(es_client, actions, chunk_size=batch_size, raise_on_error=True)
+        print(f"Batch {batch_id}: Successfully written to '{es_index_name}'")
+    except Exception as e:
+        print(f"Batch {batch_id}: Failed to write to Elasticsearch: {e}")
+        raise
+
+# ===== MAIN DRIVER =====
+def run_spark_stream(
+        topic: str, 
+        kafka_bootstrap: str,
+        es_index_name: str,
+        es_id_field: str,
+        batch_size: int,
+        save_dir: str 
+    ):
+    spark = get_spark_session(f"SparkPreprocessing-{topic.replace('.', '_')}")
+
+    if topic == "reddit.submissions":
+        envelope_schema = build_envelope_schema(payload_submission_schema)
+    elif topic == "reddit.comments":
+        envelope_schema = build_envelope_schema(payload_comment_schema)
+    
+    else:
+        raise ValueError(f"Unsupported topic: {topic}")
+
+    ensure_index_exists(es_index_name, topic)
+
+    def foreach_batch(batch_df: DataFrame, batch_id: int) -> None:
+        write_batch(
+            es_index_name=es_index_name,
+            es_id_field=es_id_field,
+            batch_size=batch_size,
+            batch_df=batch_df,
+            batch_id=batch_id,
+        )
+
+    df = (
+        spark.readStream
+        .format("kafka")
+        .option("kafka.bootstrap.servers", kafka_bootstrap)
+        .option("startingOffsets", "earliest")
+        .option("failOnDataLoss", "false")
+        .option("subscribe", topic)
+        .load()
+        .selectExpr("CAST(value AS STRING) as json_str")
+    )
+    df = df.withColumn("json_data", from_json(col("json_str"), envelope_schema)).select("json_data.*")
+    df = process_stream(df)
+
+    base_dir = (
+        save_dir
+        if save_dir is not None
+        else os.environ.get("SPARK_SAVE_DIR", "/tmp/spark-data")
+    )   
+
+    
+    checkpoint_dir = f"{base_dir}/kafka/checkpoints/{topic}"
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    print(f"Writing stream to Elasticsearch  index {es_index_name} with checkpoint {checkpoint_dir}")
+    query = (
+        df.writeStream
+        .foreachBatch(foreach_batch)
+        .option("checkpointLocation", checkpoint_dir)
+        .outputMode("append")
+        .start()
+    )
+    query.awaitTermination()
+    spark.stop()
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Spark Reddit Stream Processor")
+    parser.add_argument(
+        "--topic",
+        type=str,
+        choices=["reddit.submissions", "reddit.comments"],
+        default="reddit.submissions",
+        help="Kafka topic to read from."
+    )
+    parser.add_argument("--bootstrap", type=str, default="localhost:9092", help="Kafka bootstrap server.")
+    parser.add_argument("--es-index", type=str, required=True, help="Elasticsearch index name.")
+    parser.add_argument("--es-id-field", type=str, default="id", help="Elasticsearch document ID field.")
+    parser.add_argument("--batch-size", type=int, default=500, help="Batch size for Elasticsearch writes.")
+    parser.add_argument(
+        "--save-dir",
+        type=str,
+        default=None,
+        help="Base directory for streaming output and checkpoints."
+    )
+
+    args = parser.parse_args()
+
+    run_spark_stream(
+        topic=args.topic,
+        kafka_bootstrap=args.bootstrap,
+        es_index_name=args.es_index,
+        es_id_field=args.es_id_field,
+        batch_size=args.batch_size,
+        save_dir=args.save_dir,
+    )
+
+
+===== src/spark/streaming.py =====
+import argparse
+from pyspark.sql.functions import col, from_json
+from pyspark.sql import DataFrame
+from pyspark.sql.types import (
+    StructType, StructField, StringType, IntegerType, TimestampType, MapType
+)
+import os
+import sys
+ROOT_DIR = os.path.abspath(os.path.join(__file__, '../../..'))
+
+sys.path.insert(0,ROOT_DIR)
+
+from src.spark.utils.spark import get_spark_session
+from src.spark.processing.cleaner import clean_text_udf
+from src.spark.processing.keyword_extractor import keyword_extractor_udf
+from src.spark.processing.embedder import embedder_udf
+
+
+
+
+# ===== PAYLOAD SCHEMAS =====
+payload_submission_schema = StructType([
+    StructField("id", StringType(), True),
+    StructField("subreddit", StringType(), True),
+    StructField("author", StringType(), True),
+    StructField("title", StringType(), True),
+    StructField("body", StringType(), True),
+    StructField("created_utc", TimestampType(), True),
+    StructField("score", IntegerType(), True),
+    StructField("num_comments", IntegerType(), True),
+    StructField("url", StringType(), True),
+    StructField("permalink", StringType(), True),
+    StructField("flair", StringType(), True),
+])
+
+payload_comment_schema = StructType([
+    StructField("id", StringType(), True),
+    StructField("submission_id", StringType(), True),
+    StructField("parent_id", StringType(), True),
+    StructField("subreddit", StringType(), True),
+    StructField("author", StringType(), True),
+    StructField("body", StringType(), True),
+    StructField("created_utc", TimestampType(), True),
+    StructField("score", IntegerType(), True),
+    StructField("permalink", StringType(), True),
+    StructField("controversiality", IntegerType(), True),
+])
+
+# ===== ENVELOPE WRAPPER =====
+def build_envelope_schema(payload_schema):
+    return StructType([
+        StructField("entity_type", StringType(), True),
+        StructField("source", StringType(), True),
+        StructField("mode", StringType(), True),
+        StructField("payload", payload_schema, True),
+        StructField("emitted_at", TimestampType(), True),
+        StructField("metadata", MapType(StringType(), StringType()), True),
+    ])
+
+
+# ===== PROCESSING FUNCTION =====
+def process_stream(df):
+    """
+    Apply the text cleaning, keyword extraction, and embedding to body.
+    """
+    df = df.withColumn("id", col("payload.id"))
+    df = df.withColumn("body", col("payload.body"))
+    df = df.withColumn("clean_body", clean_text_udf(col("body")))
+    df = df.withColumn("keywords", keyword_extractor_udf(col("clean_body")))
+    df = df.withColumn("embedding", embedder_udf(col("clean_body")))
+    return df
+
+# ===== MAIN DRIVER =====
+def run_spark_stream(
+        topic: str, 
+        kafka_bootstrap: str = "localhost:9092",
+        save_dir: str | None = None
+    ):
+    spark = get_spark_session(f"SparkPreprocessing-{topic.replace('.', '_')}")
+
+    if topic == "reddit.submissions":
+        envelope_schema = build_envelope_schema(payload_submission_schema)
+    elif topic == "reddit.comments":
+        envelope_schema = build_envelope_schema(payload_comment_schema)
+    else:
+        raise ValueError(f"Unsupported topic: {topic}")
+
+    
+    df = (
+        spark.readStream
+        .format("kafka")
+        .option("kafka.bootstrap.servers", kafka_bootstrap)
+        .option("startingOffsets", "earliest")
+        .option("failOnDataLoss", "false")
+        .option("subscribe", topic)
+        .load()
+        .selectExpr("CAST(value AS STRING) as json_str")
+    )
+    df = df.withColumn("json_data", from_json(col("json_str"), envelope_schema)).select("json_data.*")
+    df = process_stream(df)
+
+    base_dir = (
+        save_dir
+        if save_dir is not None
+        else os.environ.get("SPARK_SAVE_DIR", "/tmp/spark-data")
+    )
+
+    kafka_save_dir = f"{base_dir}/kafka/output/{topic}"
+    checkpoint_dir = f"{base_dir}/kafka/checkpoints/{topic}"
+
+    os.makedirs(kafka_save_dir, exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    print(f"Writing stream to {kafka_save_dir} with checkpoint {checkpoint_dir}")
+    query = (
+        df.writeStream
+        .format("json")
+        .option("path", kafka_save_dir)
+        .option("checkpointLocation", checkpoint_dir)
+        .outputMode("append")
+        .start()
+    )
+    query.awaitTermination()
+    spark.stop()
+
+
+# ===== ENTRYPOINT =====
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Spark Reddit Stream Processor")
+    parser.add_argument(
+        "--topic",
+        type=str,
+        choices=["reddit.submissions", "reddit.comments"],
+        default="reddit.submissions",
+        help="Kafka topic to read from."
+    )
+    parser.add_argument("--bootstrap", type=str, default="localhost:9092", help="Kafka bootstrap server.")
+    parser.add_argument(
+        "--save-dir",
+        type=str,
+        default=None,
+        help=(
+            "Base directory for streaming output and checkpoints. "
+            "Defaults to $SPARK_SAVE_DIR if set, otherwise /tmp/spark-data."
+        ),
+    )
+    args = parser.parse_args()
+    run_spark_stream(
+        topic=args.topic,
+        kafka_bootstrap=args.bootstrap,
+        save_dir=args.save_dir,
+    )
+
+
+===== src/spark/processing/keyword_extractor.py =====
+from pyspark.sql.functions import udf
+from pyspark.sql.types import StringType, ArrayType
+from keybert import KeyBERT
+
+kw_model = KeyBERT()
+
+def extract_keywords(text, top_k=20):
+    kws = kw_model.extract_keywords(text)
+    return [k[0] for k in kws[:top_k]]
+
+keyword_extractor_udf = udf(extract_keywords, ArrayType(StringType()))
+
+
+===== src/spark/processing/cleaner.py =====
+from pyspark.sql.functions import udf
+from pyspark.sql.types import StringType
+import re
+
+def clean_text(text):
+    if not text:
+        return ""
+    
+    text = text.lower()
+    text = re.sub(r"http\S+", "", text)
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+clean_text_udf = udf(clean_text, StringType())
+
+===== src/spark/processing/__init__.py =====
+
+
+===== src/spark/processing/embedder.py =====
+from pyspark.sql.functions import udf
+from pyspark.sql.types import StringType
+import base64, pickle
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+
+def embed_text(text):
+    embedding = model.encode(text)
+    return base64.b64encode(pickle.dumps(embedding)).decode('utf-8')
+
+embedder_udf = udf(embed_text, StringType())
+
+===== src/.env.kafka =====
+
+
+===== src/clients/schema.py =====
+from __future__ import annotations
+from pydantic import BaseModel, Field
+from datetime import datetime
+from typing import Optional, Union, TypeVar, Generic, Literal, Any
+
+
+class RedditSubmissionEvent(BaseModel):
+    id: str = Field(..., description="Unique Reddit ID of the submission (e.g., 'abc123').")
+    subreddit: str = Field(..., description="Name of the subreddit where the submission was posted.")
+    author: Optional[str] = Field(
+        None, description="Username of the post author, or None if the account was deleted or suspended."
+    )
+    title: str = Field(..., description="Title of the submission.")
+    body: Optional[str] = Field(
+        "", description="Text content of the submission (selftext). Empty for link, image, or video posts."
+    )
+    created_utc: datetime = Field(..., description="UTC datetime when the post was created.")
+    score: int = Field(..., description="Current score (upvotes - downvotes) of the post.")
+    num_comments: int = Field(..., description="Number of comments on the post.")
+    url: str = Field(..., description="External URL or media link associated with the post, if applicable.")
+    permalink: str = Field(..., description="Relative Reddit permalink (e.g., '/r/.../comments/...').")
+    flair: Optional[str] = Field(None, description="Flair text assigned to the post, if any.")
+
+
+class RedditCommentEvent(BaseModel):
+    id: str = Field(..., description="Unique Reddit ID of the comment (e.g., 'def456').")
+    submission_id: str = Field(..., description="ID of the parent submission this comment belongs to.")
+    parent_id: str = Field(
+        ..., description="Fullname of the parent (e.g., 't3_<submission_id>' for post or 't1_<comment_id>' for another comment)."
+    )
+    subreddit: str = Field(..., description="Name of the subreddit where the comment was posted.")
+    author: Optional[str] = Field(
+        None, description="Username of the comment author, or None if deleted or suspended."
+    )
+    body: str = Field(..., description="Text content of the comment.")
+    created_utc: datetime = Field(..., description="UTC datetime when the comment was created.")
+    score: int = Field(..., description="Current score (upvotes - downvotes) of the comment.")
+    permalink: str = Field(..., description="Relative Reddit permalink for the comment (e.g., '/r/.../comments/...').")
+    controversiality: Optional[int] = Field(
+        None, description="0 if normal, 1 if the comment is flagged as controversial by Reddit."
+    )
+   
+
+EventPayload = TypeVar(
+    "EventPayload",
+    RedditSubmissionEvent,
+    RedditCommentEvent,
+)
+
+class KafkaEnvelope(Generic[EventPayload]):
+    """
+    Common architectural pattern used for sending event payload
+    """
+    entity_type: Literal['reddit_submission', 'reddit_comment']
+    source: Literal['reddit']
+    mode: Literal['trending']
+    payload: EventPayload
+    emitted_at: datetime
+    metadata: dict[str,str] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "entity_type": self.entity_type,
+            "source": self.source,
+            "mode": self.mode,
+            "emitted_at": self.emitted_at.isoformat(),
+            "payload": self.payload.model_dump(mode='json'),
+            "metadata": dict(self.metadata) if self.metadata else None,
+        }
+
+
+ 
+__all__ = [
+    "KafkaEnvelope",
+    "RedditCommentEvent",
+    "RedditSubmissionEvent"
+]
+
+===== src/clients/reddit_client.py =====
+from __future__ import annotations
+from datetime import datetime, timezone
+from typing import Callable, Iterator, Literal, Union, Any
+import praw
+import praw.exceptions
+import praw.models
+import prawcore
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+from .schema import RedditCommentEvent, RedditSubmissionEvent
+from src.config import RedditSettings
+from prefect.logging import get_logger
+
+logger = get_logger()
+
+
+RedditEvent = Union[RedditSubmissionEvent, RedditCommentEvent]
+
+
+class RedditClientError(RuntimeError):
+    """Raised when the Reddit client encounters an API failure."""
+
+
+
+def _parse_submission_id(comment: praw.models.Comment) -> str:
+    link_id = getattr(comment, "link_id", "")
+    if link_id.startswith("t3_"):
+        return link_id.split("_", maxsplit=1)[-1]
+
+    try:
+        return comment.submission.id  # type: ignore[return-value]
+    except Exception:  
+        return ""
+
+
+def _to_datetime(value: float | None) -> datetime:
+    if value is None:
+        raise RedditClientError("Expected timestamp value from Reddit API but received None")
+    return datetime.fromtimestamp(value, tz=timezone.utc)
+
+
+class RedditClient:
+    """Thin wrapper around PRAW focused on trending subreddit discovery."""
+
+    def __init__(
+        self,
+        config: RedditSettings,
+        *,
+        max_attempts: int = 5,
+        wait_initial: float = 1.0,
+        wait_max: float = 32.0,
+    ) -> None:
+        self.config = config
+        self.max_attempts = max_attempts
+        self.wait_initial = wait_initial
+        self.wait_max = wait_max
+
+        try:
+            self.api = praw.Reddit(
+                client_id=config.REDDIT_CLIENT_ID,
+                client_secret=config.REDDIT_CLIENT_SECRET,
+                user_agent=config.REDDIT_USER_AGENT,
+            )
+            self.api.read_only = True
+        except Exception as exc:  
+            raise RedditClientError("Failed to initialise PRAW client") from exc
+
+        self._retry_exceptions = (
+            prawcore.exceptions.PrawcoreException,
+            praw.exceptions.PRAWException,
+        )
+
+   
+    
+    def fetch_trending_subreddits(self, *, limit: int = 10) -> list[str]:
+
+        def _call() -> list[str]:
+            logger.debug(f"Fetching {limit} trending subreddits")
+            return [sub.display_name for sub in self.api.subreddits.popular(limit=limit)]
+
+        return self._call_with_retry("fetch trending subreddits", _call)
+
+    def iter_trending_events(
+        self,
+        *,
+        subreddit_limit: int = 5,
+        posts_per_subreddit: int = 10,
+        comment_limit: int = 20,
+        post_sort: Literal["new", "hot", "top", "rising"] = "hot",
+    ) -> Iterator[RedditEvent]:
+        """Yield submissions and comments discovered through the trending workflow."""
+
+        subreddits = self.fetch_trending_subreddits(limit=subreddit_limit)
+        logger.debug(
+            "Beginning trending crawl", extra={"subreddits": subreddits, "post_sort": post_sort}
+        )
+        for subreddit_name in subreddits:
+            for submission in self._iter_subreddit_posts(
+                subreddit_name,
+                limit=posts_per_subreddit,
+                post_sort=post_sort,
+            ):
+                submission_event = self._serialize_submission(submission)
+                yield submission_event
+
+                if comment_limit <= 0:
+                    continue
+
+                for comment_event in self._iter_submission_comments(
+                    submission,
+                    limit=comment_limit,
+                ):
+                    yield comment_event
+
+    def _iter_subreddit_posts(
+        self,
+        subreddit_name: str,
+        *,
+        limit: int,
+        post_sort: Literal["new", "hot", "top", "rising"],
+    ) -> Iterator[praw.models.Submission]:
+        def _fetch_posts() -> list[praw.models.Submission]:
+            subreddit = self.api.subreddit(subreddit_name)
+            fetcher = getattr(subreddit, post_sort)
+            logger.debug(
+                f"Fetching {limit} posts for r/{subreddit_name}"
+            )
+            return list(fetcher(limit=limit))
+
+        submissions = self._call_with_retry(
+            f"fetch {post_sort} posts for r/{subreddit_name}",
+            _fetch_posts,
+        )
+
+        for submission in submissions:
+            yield submission
+
+    def _iter_submission_comments(
+        self,
+        submission: praw.models.Submission,
+        *,
+        limit: int,
+    ) -> Iterator[RedditCommentEvent]:
+        def _load_comments() -> list:
+            logger.debug(f"Fetching comments for submission {submission.id}")
+            submission.comments.replace_more(limit=0)
+            return submission.comments.list()
+
+        comments = self._call_with_retry(
+            f"fetch comments for submission {submission.id}",
+            _load_comments,
+        )
+
+        emitted = 0
+        for comment in comments:
+            yield self._serialize_comment(comment)
+            emitted += 1
+            if limit and emitted >= limit:
+                break
+
+    def _call_with_retry(self, action: str, func: Callable) -> Any:
+        @retry(
+            reraise=True,
+            stop=stop_after_attempt(self.max_attempts),
+            wait=wait_exponential(multiplier=self.wait_initial, max=self.wait_max),
+            retry=retry_if_exception_type(self._retry_exceptions),
+        )
+        def _wrapped():
+            return func()
+
+        try:
+            return _wrapped()
+        except self._retry_exceptions as exc:
+            raise RedditClientError(f"{action} failed after {self.max_attempts} attempts") from exc
+
+    @staticmethod
+    def _serialize_submission(submission: praw.models.Submission) -> RedditSubmissionEvent:
+        author = getattr(submission.author, "name", None)
+        subreddit = getattr(submission.subreddit, "display_name", "")
+
+        return RedditSubmissionEvent(
+            id=submission.id,
+            subreddit=subreddit,
+            author=author,
+            title=submission.title or "",
+            body=(getattr(submission, "selftext", "") or ""),
+            created_utc=_to_datetime(getattr(submission, "created_utc", None)),
+            score=int(getattr(submission, "score", 0) or 0),
+            num_comments=int(getattr(submission, "num_comments", 0) or 0),
+            url=getattr(submission, "url", "") or "",
+            permalink=submission.permalink or "",
+            flair=getattr(submission, "link_flair_text", None),
+        )
+
+    @staticmethod
+    def _serialize_comment(comment: praw.models.Comment) -> RedditCommentEvent:
+        submission_id = _parse_submission_id(comment)
+
+        return RedditCommentEvent(
+            id=comment.id,
+            submission_id=submission_id,
+            parent_id=getattr(comment, "parent_id", ""),
+            subreddit=getattr(comment.subreddit, "display_name", ""),
+            author=getattr(comment.author, "name", None),
+            body=comment.body,
+            created_utc=_to_datetime(getattr(comment, "created_utc", None)),
+            score=int(getattr(comment, "score", 0) or 0),
+            permalink=comment.permalink,
+            controversiality=getattr(comment, "controversiality", None),
+        )
+
+
+
+
+
+
+
+===== src/kibana/inject.py =====
+import os
+import json
+import time
+import shutil
+from elasticsearch import Elasticsearch, helpers
+
+# ========== COLORS ==========
+GREEN = "\033[92m"
+RED = "\033[91m"
+YELLOW = "\033[93m"
+RESET = "\033[0m"
+
+# ========== CONFIG ==========
+es = Elasticsearch("http://localhost:9200")
+INDEX_NAME = "social_stream"
+WATCH_DIR = "/home/tinhanhnguyen/Desktop/HK7/BigData/big_project/data/spark/kafka/output/reddit.submissions"
+PROCESSED_DIR = os.path.join(WATCH_DIR, "processed")
+SLEEP_INTERVAL = 5  # seconds between checks
+
+os.makedirs(PROCESSED_DIR, exist_ok=True)
+
+# ========== FUNCTIONS ==========
+def generate_actions(path):
+    """Yield Elasticsearch bulk actions with deduplication by 'created_utc'."""
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                doc = json.loads(line)
+                # Try to locate unique field
+                doc_id = None
+                # For safety, handle both "created_utc" and nested "payload.created_utc"
+                if "created_utc" in doc:
+                    doc_id = str(doc["created_utc"])
+                elif "payload" in doc and "created_utc" in doc["payload"]:
+                    doc_id = str(doc["payload"]["created_utc"])
+                else:
+                    print(f"{YELLOW}[WARN]{RESET} No 'created_utc' field found in {path}")
+
+                action = {
+                    "_index": INDEX_NAME,
+                    "_source": doc
+                }
+                if doc_id:
+                    action["_id"] = doc_id  # ensures idempotent insert
+                yield action
+            except json.JSONDecodeError:
+                print(f"{YELLOW}[WARN]{RESET} Skipping invalid JSON line in {path}")
+            except Exception as e:
+                print(f"{RED}[ERROR]{RESET} Failed parsing {path}: {e}")
+
+def process_file(file_path):
+    """Inject data from a JSON file into Elasticsearch."""
+    try:
+        helpers.bulk(es, generate_actions(file_path))
+        print(f"{GREEN}[SUCCESS]{RESET} Indexed data from: {file_path}")
+        # Move file to processed/
+        dest_path = os.path.join(PROCESSED_DIR, os.path.basename(file_path))
+        shutil.move(file_path, dest_path)
+    except Exception as e:
+        print(f"{RED}[ERROR]{RESET} Failed to index {file_path}: {e}")
+
+def watch_directory():
+    """Continuously watch the folder and inject new JSON files."""
+    print(f"{YELLOW}Watching folder:{RESET} {WATCH_DIR}")
+    while True:
+        try:
+            files = [f for f in os.listdir(WATCH_DIR) if f.endswith((".json", ".jsonl"))]
+            if not files:
+                time.sleep(SLEEP_INTERVAL)
+                continue
+            for filename in files:
+                file_path = os.path.join(WATCH_DIR, filename)
+                process_file(file_path)
+        except KeyboardInterrupt:
+            print(f"\n{YELLOW}Stopped by user.{RESET}")
+            break
+        except Exception as e:
+            print(f"{RED}[ERROR]{RESET} Unexpected error: {e}")
+            time.sleep(SLEEP_INTERVAL)
+
+# ========== MAIN ==========
+if __name__ == "__main__":
+    watch_directory()
+
+
+===== src/kibana/create_index.py =====
+"""
+Elasticsearch Index Creation Script
+Creates indices with optimized mappings before streaming starts.
+"""
+
+from elasticsearch import Elasticsearch
+from elasticsearch.exceptions import RequestError
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Configuration
+ES_HOST = "http://elasticsearch:9200"
+es = Elasticsearch(ES_HOST)
+
+
+def create_submissions_index():
+    """Create reddit_submissions index with optimized mapping."""
+    
+    index_name = "reddit_submissions"
+    
+    mapping = {
+        "settings": {
+            "number_of_shards": 1,
+            "number_of_replicas": 0,
+            "refresh_interval": "5s"  
+        },
+        "mappings": {
+            "properties": {
+                "entity_type": {
+                    "type": "keyword"
+                },
+                "source": {
+                    "type": "keyword"
+                },
+                "mode": {
+                    "type": "keyword"
+                },
+                "emitted_at": {
+                    "type": "date",
+                    "format": "strict_date_optional_time||epoch_millis"
+                },
+                
+                "payload": {
+                    "properties": {
+                        "id": {
+                            "type": "keyword"
+                        },
+                        "subreddit": {
+                            "type": "keyword"  # For aggregations (top subreddits)
+                        },
+                        "author": {
+                            "type": "keyword",  # For aggregations (top authors)
+                            "ignore_above": 256
+                        },
+                        "title": {
+                            "type": "text",  # Full-text search
+                            "fields": {
+                                "keyword": {  # For sorting, exact match
+                                    "type": "keyword",
+                                    "ignore_above": 256
+                                }
+                            }
+                        },
+                        "body": {
+                            "type": "text",  # Full-text search
+                            "analyzer": "english"  # Better English text analysis
+                        },
+                        "created_utc": {
+                            "type": "date"
+                        },
+                        "score": {
+                            "type": "integer"
+                        },
+                        "num_comments": {
+                            "type": "integer"
+                        },
+                        "url": {
+                            "type": "keyword",
+                            "index": False  # Don't index URLs (just store)
+                        },
+                        "permalink": {
+                            "type": "keyword",
+                            "index": False
+                        },
+                        "flair": {
+                            "type": "keyword"
+                        }
+                    }
+                },
+                
+                "metadata": {
+                    "properties": {
+                        "subreddit": {
+                            "type": "keyword"
+                        },
+                        "post_sort": {
+                            "type": "keyword"
+                        }
+                    }
+                },
+                
+                # Spark processing outputs
+                "body": {
+                    "type": "text"
+                },
+                "clean_body": {
+                    "type": "text",
+                    "analyzer": "english"
+                },
+                "keywords": {
+                    "type": "keyword"  # Array of keywords
+                },
+                "embedding": {
+                    "type": "keyword",  # Base64 encoded, don't analyze
+                    "index": False      # Don't index (just store for retrieval)
+                },
+                "es_id": {
+                    "type": "keyword"
+                }
+            }
+        }
+    }
+    
+    try:
+        if es.indices.exists(index=index_name):
+            logger.info(f"Index '{index_name}' already exists, deleting...")
+            es.indices.delete(index=index_name)
+        
+        es.indices.create(index=index_name, body=mapping)
+        logger.info(f"✅ Created index: {index_name}")
+        
+        mapping_result = es.indices.get_mapping(index=index_name)
+        logger.info(f"Index created with {len(mapping_result[index_name]['mappings']['properties'])} top-level fields")
+        
+        return True
+        
+    except RequestError as e:
+        logger.error(f"❌ Failed to create index: {e}")
+        return False
+
+
+def create_comments_index():
+    """Create reddit_comments index with optimized mapping."""
+    
+    index_name = "reddit_comments"
+    
+    mapping = {
+        "settings": {
+            "number_of_shards": 1,
+            "number_of_replicas": 0,
+            "refresh_interval": "5s"
+        },
+        "mappings": {
+            "properties": {
+                # Top-level fields
+                "entity_type": {
+                    "type": "keyword"
+                },
+                "source": {
+                    "type": "keyword"
+                },
+                "mode": {
+                    "type": "keyword"
+                },
+                "emitted_at": {
+                    "type": "date",
+                    "format": "strict_date_optional_time||epoch_millis"
+                },
+                
+                # Payload (Reddit comment data)
+                "payload": {
+                    "properties": {
+                        "id": {
+                            "type": "keyword"
+                        },
+                        "submission_id": {
+                            "type": "keyword"  # For joining with submissions
+                        },
+                        "parent_id": {
+                            "type": "keyword"
+                        },
+                        "subreddit": {
+                            "type": "keyword"
+                        },
+                        "author": {
+                            "type": "keyword",
+                            "ignore_above": 256
+                        },
+                        "body": {
+                            "type": "text",
+                            "analyzer": "english"
+                        },
+                        "created_utc": {
+                            "type": "date"
+                        },
+                        "score": {
+                            "type": "integer"
+                        },
+                        "permalink": {
+                            "type": "keyword",
+                            "index": False
+                        },
+                        "controversiality": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                
+                # Metadata
+                "metadata": {
+                    "properties": {
+                        "subreddit": {
+                            "type": "keyword"
+                        },
+                        "submission_id": {
+                            "type": "keyword"
+                        }
+                    }
+                },
+                
+                # Spark processing outputs
+                "body": {
+                    "type": "text"
+                },
+                "clean_body": {
+                    "type": "text",
+                    "analyzer": "english"
+                },
+                "keywords": {
+                    "type": "keyword"
+                },
+                "embedding": {
+                    "type": "keyword",
+                    "index": False
+                },
+                "es_id": {
+                    "type": "keyword"
+                }
+            }
+        }
+    }
+    
+    try:
+        if es.indices.exists(index=index_name):
+            logger.info(f"Index '{index_name}' already exists, deleting...")
+            es.indices.delete(index=index_name)
+        
+        es.indices.create(index=index_name, body=mapping)
+        logger.info(f"Created index: {index_name}")
+        
+        return True
+        
+    except RequestError as e:
+        logger.error(f"Failed to create index: {e}")
+        return False
+
+
+def ensure_index_exists(index_name: str, topic: str):
+    if not es.indices.exists(index=index_name):
+        print(f"Index '{index_name}' doesn't exist, creating...")
+        if topic == "reddit.submissions":
+            create_submissions_index()
+        elif topic == "reddit.comments":
+            create_comments_index()
+        print(f"Index '{index_name}' created")
+    else:
+        print(f"Index '{index_name}' already exists, skipping creation")
+
+
+===== src/kibana/visualization.py =====
+import requests
+import json
+import time
+import sys
+from typing import Dict, Any
+
+# Configuration
+KIBANA_URL = "http://localhost:5601"
+ES_URL = "http://localhost:9200"
+
+
+class KibanaVisualization:
+    def __init__(self, kibana_url=KIBANA_URL, es_url=ES_URL):
+        self.kibana_url = kibana_url
+        self.es_url = es_url
+        self.headers = {
+            "kbn-xsrf": "true",
+            "Content-Type": "application/json"
+        }
+        self.created_objects = []
+    
+    def create_or_update(self, object_type, object_id, payload:dict):
+        url = f"{self.kibana_url}/a[i/saved_objects/{object_type}/{object_id}"
+        
+        try:
+            response = requests.post(
+                url=url,
+                headers=self.headers,
+                json=payload,
+                params={"overwrite": "true"}
+            )
+            if response.ok:
+                self.created_objects.append({
+                    "type": object_type,
+                    "id": object_id,
+                    "title": payload.get("attributes", {}).get('title', object_id)
+                })
+                return True
+            else:
+                print(f"{object_type}/{object_id}: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            print(f"Error: {e}")
+            return False
+    
+    def create_index_pattern(self):
+        patterns = [
+            {
+                "id": "reddit_submissions",
+                "title": "reddit_submissions*",
+                "timeFieldName": "emitted_at"
+            },
+            {
+                "id": "reddit_comments",
+                "title": "reddit_comments*",
+                "timeFieldName": "emitted_at"
+            }
+        ]
+
+        for pattern in patterns:
+            payload = {
+                "attributes": {
+                    "title": pattern["title"],
+                    "timeFieldName": pattern["timeFieldName"]
+                }
+            }
+            
+            if self.create_or_update("index-pattern", pattern["id"], payload):
+                print(f"{pattern['title']}")
+    
+    def create_visualizations(self):
+        """Create all visualizations."""
+        viz_posts_timeline = {
+            "attributes": {
+                "title": "Reddit Posts Over Time",
+                "visState": json.dumps({
+                    "title": "Reddit Posts Over Time",
+                    "type": "line",
+                    "aggs": [
+                        {
+                            "id": "1",
+                            "enabled": True,
+                            "type": "count",
+                            "params": {},
+                            "schema": "metric"
+                        },
+                        {
+                            "id": "2",
+                            "enabled": True,
+                            "type": "date_histogram",
+                            "params": {
+                                "field": "payload.created_utc",
+                                "timeRange": {"from": "now-1h", "to": "now"},
+                                "useNormalizedEsInterval": True,
+                                "scaleMetricValues": False,
+                                "interval": "auto",
+                                "drop_partials": False,
+                                "min_doc_count": 1,
+                                "extended_bounds": {}
+                            },
+                            "schema": "segment"
+                        }
+                    ],
+                    "params": {
+                        "type": "line",
+                        "grid": {"categoryLines": False},
+                        "categoryAxes": [{
+                            "id": "CategoryAxis-1",
+                            "type": "category",
+                            "position": "bottom",
+                            "show": True,
+                            "title": {}
+                        }],
+                        "valueAxes": [{
+                            "id": "ValueAxis-1",
+                            "name": "LeftAxis-1",
+                            "type": "value",
+                            "position": "left",
+                            "show": True,
+                            "title": {"text": "Count"}
+                        }],
+                        "seriesParams": [{
+                            "show": True,
+                            "type": "line",
+                            "mode": "normal",
+                            "data": {"label": "Count", "id": "1"},
+                            "valueAxis": "ValueAxis-1",
+                            "drawLinesBetweenPoints": True,
+                            "lineWidth": 2,
+                            "showCircles": True
+                        }],
+                        "addTooltip": True,
+                        "addLegend": True,
+                        "legendPosition": "right",
+                        "times": [],
+                        "addTimeMarker": False,
+                        "thresholdLine": {"show": False}
+                    }
+                }),
+                "uiStateJSON": "{}",
+                "description": "Timeline showing Reddit post volume",
+                "kibanaSavedObjectMeta": {
+                    "searchSourceJSON": json.dumps({
+                        "index": "reddit_submissions",
+                        "query": {"query": "", "language": "kuery"},
+                        "filter": []
+                    })
+                }
+            }
+        }
+        self.create_or_update("visualization", "reddit-posts-timeline", viz_posts_timeline)
+        print("Posts Over Time")
+        
+        viz_top_subreddits = {
+            "attributes": {
+                "title": "Top 10 Subreddits",
+                "visState": json.dumps({
+                    "title": "Top 10 Subreddits",
+                    "type": "pie",
+                    "aggs": [
+                        {
+                            "id": "1",
+                            "enabled": True,
+                            "type": "count",
+                            "params": {},
+                            "schema": "metric"
+                        },
+                        {
+                            "id": "2",
+                            "enabled": True,
+                            "type": "terms",
+                            "params": {
+                                "field": "payload.subreddit.keyword",
+                                "orderBy": "1",
+                                "order": "desc",
+                                "size": 10,
+                                "otherBucket": False,
+                                "otherBucketLabel": "Other",
+                                "missingBucket": False,
+                                "missingBucketLabel": "Missing"
+                            },
+                            "schema": "segment"
+                        }
+                    ],
+                    "params": {
+                        "type": "pie",
+                        "addTooltip": True,
+                        "addLegend": True,
+                        "legendPosition": "right",
+                        "isDonut": False,
+                        "labels": {
+                            "show": True,
+                            "values": True,
+                            "last_level": True,
+                            "truncate": 100
+                        }
+                    }
+                }),
+                "uiStateJSON": "{}",
+                "description": "Distribution of posts across top subreddits",
+                "kibanaSavedObjectMeta": {
+                    "searchSourceJSON": json.dumps({
+                        "index": "reddit_submissions",
+                        "query": {"query": "", "language": "kuery"},
+                        "filter": []
+                    })
+                }
+            }
+        }
+        self.create_or_update("visualization", "reddit-top-subreddits", viz_top_subreddits)
+        print("Top Subreddits")
+        
+        viz_total_posts = {
+            "attributes": {
+                "title": "Total Posts",
+                "visState": json.dumps({
+                    "title": "Total Posts",
+                    "type": "metric",
+                    "aggs": [
+                        {
+                            "id": "1",
+                            "enabled": True,
+                            "type": "count",
+                            "params": {},
+                            "schema": "metric"
+                        }
+                    ],
+                    "params": {
+                        "addTooltip": True,
+                        "addLegend": False,
+                        "type": "metric",
+                        "metric": {
+                            "percentageMode": False,
+                            "useRanges": False,
+                            "colorSchema": "Green to Red",
+                            "metricColorMode": "None",
+                            "colorsRange": [{"from": 0, "to": 10000}],
+                            "labels": {"show": True},
+                            "invertColors": False,
+                            "style": {
+                                "bgFill": "#000",
+                                "bgColor": False,
+                                "labelColor": False,
+                                "subText": "",
+                                "fontSize": 60
+                            }
+                        }
+                    }
+                }),
+                "uiStateJSON": "{}",
+                "description": "Total number of Reddit posts",
+                "kibanaSavedObjectMeta": {
+                    "searchSourceJSON": json.dumps({
+                        "index": "reddit_submissions",
+                        "query": {"query": "", "language": "kuery"},
+                        "filter": []
+                    })
+                }
+            }
+        }
+        self.create_or_update("visualization", "reddit-total-posts", viz_total_posts)
+        print("Total Posts")
+        
+        viz_avg_score = {
+            "attributes": {
+                "title": "Average Post Score",
+                "visState": json.dumps({
+                    "title": "Average Post Score",
+                    "type": "metric",
+                    "aggs": [
+                        {
+                            "id": "1",
+                            "enabled": True,
+                            "type": "avg",
+                            "params": {"field": "payload.score"},
+                            "schema": "metric"
+                        }
+                    ],
+                    "params": {
+                        "addTooltip": True,
+                        "addLegend": False,
+                        "type": "metric",
+                        "metric": {
+                            "percentageMode": False,
+                            "useRanges": False,
+                            "colorSchema": "Green to Red",
+                            "metricColorMode": "None",
+                            "colorsRange": [{"from": 0, "to": 1000}],
+                            "labels": {"show": True},
+                            "invertColors": False,
+                            "style": {
+                                "bgFill": "#000",
+                                "bgColor": False,
+                                "labelColor": False,
+                                "subText": "",
+                                "fontSize": 60
+                            }
+                        }
+                    }
+                }),
+                "uiStateJSON": "{}",
+                "description": "Average score (upvotes) of posts",
+                "kibanaSavedObjectMeta": {
+                    "searchSourceJSON": json.dumps({
+                        "index": "reddit_submissions",
+                        "query": {"query": "", "language": "kuery"},
+                        "filter": []
+                    })
+                }
+            }
+        }
+        self.create_or_update("visualization", "reddit-avg-score", viz_avg_score)
+        print("Average Score")
+        
+        viz_keywords = {
+            "attributes": {
+                "title": "Top Keywords",
+                "visState": json.dumps({
+                    "title": "Top Keywords",
+                    "type": "tagcloud",
+                    "aggs": [
+                        {
+                            "id": "1",
+                            "enabled": True,
+                            "type": "count",
+                            "params": {},
+                            "schema": "metric"
+                        },
+                        {
+                            "id": "2",
+                            "enabled": True,
+                            "type": "terms",
+                            "params": {
+                                "field": "keywords",
+                                "orderBy": "1",
+                                "order": "desc",
+                                "size": 50,
+                                "otherBucket": False,
+                                "missingBucket": False
+                            },
+                            "schema": "segment"
+                        }
+                    ],
+                    "params": {
+                        "scale": "linear",
+                        "orientation": "single",
+                        "minFontSize": 18,
+                        "maxFontSize": 72,
+                        "showLabel": True
+                    }
+                }),
+                "uiStateJSON": "{}",
+                "description": "Most common keywords extracted from posts",
+                "kibanaSavedObjectMeta": {
+                    "searchSourceJSON": json.dumps({
+                        "index": "reddit_submissions",
+                        "query": {"query": "", "language": "kuery"},
+                        "filter": []
+                    })
+                }
+            }
+        }
+        self.create_or_update("visualization", "reddit-keywords", viz_keywords)
+        print("Top Keywords")
+        
+        viz_heatmap = {
+            "attributes": {
+                "title": "Posts by Hour of Day",
+                "visState": json.dumps({
+                    "title": "Posts by Hour of Day",
+                    "type": "heatmap",
+                    "aggs": [
+                        {
+                            "id": "1",
+                            "enabled": True,
+                            "type": "count",
+                            "params": {},
+                            "schema": "metric"
+                        },
+                        {
+                            "id": "2",
+                            "enabled": True,
+                            "type": "date_histogram",
+                            "params": {
+                                "field": "payload.created_utc",
+                                "timeRange": {"from": "now-7d", "to": "now"},
+                                "useNormalizedEsInterval": True,
+                                "interval": "h",
+                                "drop_partials": False,
+                                "min_doc_count": 0
+                            },
+                            "schema": "segment"
+                        }
+                    ],
+                    "params": {
+                        "type": "heatmap",
+                        "addTooltip": True,
+                        "addLegend": True,
+                        "enableHover": False,
+                        "legendPosition": "right",
+                        "times": [],
+                        "colorsNumber": 4,
+                        "colorSchema": "Blues",
+                        "setColorRange": False,
+                        "colorsRange": [],
+                        "invertColors": False,
+                        "percentageMode": False,
+                        "valueAxes": [{
+                            "show": False,
+                            "id": "ValueAxis-1",
+                            "type": "value",
+                            "scale": {"type": "linear", "defaultYExtents": False},
+                            "labels": {"show": False, "rotate": 0, "color": "#555"}
+                        }]
+                    }
+                }),
+                "uiStateJSON": "{}",
+                "description": "Heatmap showing post activity by hour",
+                "kibanaSavedObjectMeta": {
+                    "searchSourceJSON": json.dumps({
+                        "index": "reddit_submissions",
+                        "query": {"query": "", "language": "kuery"},
+                        "filter": []
+                    })
+                }
+            }
+        }
+        self.create_or_update("visualization", "reddit-heatmap", viz_heatmap)
+        print("Posts by Hour")
+
+    
+    def create_dashboard(self):
+        panels = [
+            {
+                "version": "8.13.4",
+                "gridData": {"x": 0, "y": 0, "w": 24, "h": 8, "i": "1"},
+                "panelIndex": "1",
+                "embeddableConfig": {},
+                "panelRefName": "panel_1"
+            },
+            {
+                "version": "8.13.4",
+                "gridData": {"x": 24, "y": 0, "w": 24, "h": 8, "i": "2"},
+                "panelIndex": "2",
+                "embeddableConfig": {},
+                "panelRefName": "panel_2"
+            },
+            {
+                "version": "8.13.4",
+                "gridData": {"x": 0, "y": 8, "w": 12, "h": 6, "i": "3"},
+                "panelIndex": "3",
+                "embeddableConfig": {},
+                "panelRefName": "panel_3"
+            },
+            {
+                "version": "8.13.4",
+                "gridData": {"x": 12, "y": 8, "w": 12, "h": 6, "i": "4"},
+                "panelIndex": "4",
+                "embeddableConfig": {},
+                "panelRefName": "panel_4"
+            },
+            {
+                "version": "8.13.4",
+                "gridData": {"x": 24, "y": 8, "w": 24, "h": 14, "i": "5"},
+                "panelIndex": "5",
+                "embeddableConfig": {},
+                "panelRefName": "panel_5"
+            },
+            {
+                "version": "8.13.4",
+                "gridData": {"x": 0, "y": 14, "w": 24, "h": 8, "i": "6"},
+                "panelIndex": "6",
+                "embeddableConfig": {},
+                "panelRefName": "panel_6"
+            }
+        ]
+        
+        references = [
+            {
+                "name": "panel_1",
+                "type": "visualization",
+                "id": "reddit-posts-timeline"
+            },
+            {
+                "name": "panel_2",
+                "type": "visualization",
+                "id": "reddit-top-subreddits"
+            },
+            {
+                "name": "panel_3",
+                "type": "visualization",
+                "id": "reddit-total-posts"
+            },
+            {
+                "name": "panel_4",
+                "type": "visualization",
+                "id": "reddit-avg-score"
+            },
+            {
+                "name": "panel_5",
+                "type": "visualization",
+                "id": "reddit-keywords"
+            },
+            {
+                "name": "panel_6",
+                "type": "visualization",
+                "id": "reddit-heatmap"
+            }
+        ]
+        
+        dashboard = {
+            "attributes": {
+                "title": "Reddit Analytics Dashboard",
+                "description": "Real-time Reddit post analytics",
+                "panelsJSON": json.dumps(panels),
+                "optionsJSON": json.dumps({
+                    "useMargins": True,
+                    "hidePanelTitles": False
+                }),
+                "version": 1,
+                "timeRestore": True,
+                "timeTo": "now",
+                "timeFrom": "now-1h",
+                "refreshInterval": {
+                    "pause": False,
+                    "value": 5000 
+                },
+                "kibanaSavedObjectMeta": {
+                    "searchSourceJSON": json.dumps({
+                        "query": {"query": "", "language": "kuery"},
+                        "filter": []
+                    })
+                }
+            },
+            "references": references
+        }
+        
+        if self.create_or_update("dashboard", "reddit-analytics", dashboard):
+            print("Reddit Analytics Dashboard")
+            return True
+        return False
+    
+
+if __name__ == "__main__":
+    setup = KibanaVisualization()
+    setup.create_index_pattern()
+    time.sleep(2)
+    setup.create_visualizations()
+    time.sleep(2)
+    setup.create_dashboard()
+
+
+===== src/config.py =====
+from __future__ import annotations
+from functools import lru_cache
+from typing import Any, Literal
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
+from pydantic import BaseModel
+
+load_dotenv(dotenv_path='./.env.kafka', verbose=True)
+
+
+class KafkaSettings(BaseSettings):
+
+    KAFKA_BOOTSTRAP_SERVERS: str
+    KAFKA_CLIENT_ID: str
+
+    def build_producer_config(self) -> dict[str, Any]:
+        cfg = {
+            "bootstrap.servers": self.KAFKA_BOOTSTRAP_SERVERS,
+            "client.id": self.KAFKA_CLIENT_ID,
+        }
+        return cfg
+
+
+class RedditSettings(BaseSettings):
+    REDDIT_CLIENT_ID: str
+    REDDIT_CLIENT_SECRET: str
+    REDDIT_USER_AGENT: str
+    REDDIT_SUBREDDIT_LIMIT: int = 5
+    REDDIT_POSTS_PER_SUBREDDIT: int = 10
+    REDDIT_COMMENT_LIMIT: int = 20
+    REDDIT_POST_SORT: Literal["hot", "new", "top", "rising"] = "hot"
+
+
+class TopicSettings(BaseSettings):
+    TOPIC_REDDIT_SUBMISSIONS: str = "reddit.submissions"
+    TOPIC_REDDIT_COMMENTS: str = "reddit.comments"
+
+
+class AppSettings(BaseModel):
+    model_config = SettingsConfigDict(extra="ignore")
+
+    kafka: KafkaSettings
+    reddit: RedditSettings
+    topics: TopicSettings
+
+@lru_cache(maxsize=1)
+def load_settings() -> AppSettings:
+    kafka = KafkaSettings() #type:ignore
+    reddit = RedditSettings() #type:ignore
+    topics = TopicSettings()
+    settings = AppSettings(
+        kafka=kafka,
+        reddit=reddit,
+        topics=topics
+    )
+    return settings
+
+
+__all__ = [
+    "AppSettings",
+    "KafkaSettings",
+    "RedditSettings",
+    "TopicSettings",
+    "load_settings",
+]
+
+
+===== src/kafka/publisher.py =====
+import json
+import threading
+from dataclasses import dataclass
+
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from typing import Any, Callable, Mapping, MutableMapping, Optional, Sequence, Literal
+from datetime import datetime
+from src.clients.schema import KafkaEnvelope, RedditCommentEvent, RedditSubmissionEvent
+from confluent_kafka import Producer, KafkaError, KafkaException
+from prefect.logging import get_logger
+
+logger = get_logger()
+
+class KafkaPublishError(RuntimeError):
+    """Raised when a non-retriable Kafka delivery failure occurs."""
+ 
+ 
+class KafkaPublishRetriableError(KafkaPublishError):
+    """Raised for retryable Kafka delivery failures."""
+
+
+
+@dataclass(frozen=True)
+class PublishResult: 
+    topic: str
+    partition: str
+    offset: int
+
+def default_serializer(payload: Any):
+    try:
+        return json.dumps(payload, ensure_ascii=False).encode('utf-8')
+    except Exception as e:
+        raise KafkaPublishError(f"Failed to serialise payload to JSON: {e}") from e
+    
+
+
+ 
+def build_envelope(
+    *,
+    entity_type: Literal["reddit_submission", "reddit_comment"],
+    source: Literal["reddit", "x"],
+    payload: RedditSubmissionEvent | RedditCommentEvent ,
+    emitted_at: datetime,
+    metadata: Optional[dict[str, str]] = None,
+) -> dict[str, object]:
+    payload_dict = payload.model_dump(mode="json", exclude_none=True)
+    envelope = {
+        "entity_type": entity_type,
+        "source": source,
+        "mode": "trending",
+        "payload": payload_dict,
+        "emitted_at": emitted_at.isoformat(),
+    }
+    if metadata:
+        envelope["metadata"] = metadata
+    return envelope
+
+
+class KafkaPublisher:
+    def __init__(self, *, producer: Producer, max_attempts: int =5, wait_initial: float=1.0, wait_max: float=32.0, delivery_timeout: float = 32.0):
+        self._producer = producer 
+        self.max_attempts = max_attempts
+        self.wait_initial = wait_initial
+        self.wait_max = wait_max
+        self.delivery_timeout = delivery_timeout
+        self.serializer = lambda x: default_serializer(x)
+    
+
+    
+
+    def _prepare_payload(self, payload:Any) -> bytes:
+        if isinstance(payload, KafkaEnvelope) :
+            payload = payload.to_dict()
+        elif hasattr(payload, "model_dump"):
+            payload = payload.model_dump()
+        elif hasattr(payload, "dict"):
+            payload = payload.dict()
+        return self.serializer(payload)
+
+    def _prepare_headers(self, headers) -> Sequence[tuple[str, bytes]] | None:
+        if headers is None:
+            return None
+        
+        if isinstance(headers, Sequence):
+            return [(key, value.encode('utf-8') )for key, value in headers]
+        return [(key, value.encode('utf-8')) for key, value in headers.items()]
+
+    def publish(
+        self,
+        *,
+        topic: str,
+        key: str,
+        payload: Any,
+        headers = None
+    ):
+
+        prepared_payload = self._prepare_payload(payload)
+        prepared_header = self._prepare_headers(headers)
+
+        @retry(
+            reraise=True,
+            stop=stop_after_attempt(self.max_attempts),
+            wait=wait_exponential(multiplier=self.wait_initial, max=self.wait_max),
+            retry=retry_if_exception_type(KafkaPublishRetriableError),
+        )
+        def _send() -> PublishResult:
+            deliver_event = threading.Event()
+            deliver_error: list = []
+            deliver_metadata: MutableMapping[str, Any] = {}
+
+            def _deliver_callback(err: KafkaError | None, msg) -> None:
+                if err is not None:
+                    exception_cls = KafkaPublishError
+                    if not err.fatal():
+                        exception_cls = KafkaPublishRetriableError
+                    deliver_error.append(exception_cls(f"Kafka delivery error: {err}"))
+                else:
+                    deliver_metadata.update(
+                        {
+                            'topic': msg.topic(),
+                            'partition': msg.partition(),
+                            'offset': msg.offset()
+                        }
+                    )
+
+                deliver_event.set()
+            
+            try:
+                logger.debug("Before producing...")
+                self._producer.produce( #type:ignore
+                    topic=topic,
+                    key=key,
+                    value=prepared_payload,
+                    headers=prepared_header,
+                    on_delivery=_deliver_callback
+                )
+            except BufferError as e:
+                self._producer.poll(0) #type:ignore
+                raise KafkaPublishRetriableError("Local producer queue is full, backing off...") from e
+            
+            except KafkaException as e:
+                kafka_error = e.args[0] if e.args else None
+                if isinstance(kafka_error, KafkaError) and kafka_error.fatal(): #type:ignore
+                    raise KafkaPublishError(f"Kafka produce failed: {kafka_error}") from e
+                raise KafkaPublishRetriableError(f"Kafka produce failed: {kafka_error}") from e
+            
+            logger.debug("Call polling...")
+            self._producer.poll(0.5)  #type:ignore
+
+            if not deliver_event.wait(self.delivery_timeout):
+                raise KafkaPublishRetriableError(f"timeout waiting for delivery report after {self.delivery_timeout}")
+            
+            if deliver_error:
+                raise deliver_error[0]
+            
+
+            return PublishResult(**deliver_metadata)
+        
+        result = _send()
+
+        return result
+    
+
+    def flush(self, timeout: float | None = None):
+        remaining = self._producer.flush(timeout) #type:ignore
+        if remaining > 0:
+            raise KafkaPublishError(f"Failed to flush kafka producer; {remaining} messages (s) pending")
+        
+
+    def close(self, timeout: float | None = None) -> None:
+        try:
+            self.flush(timeout)
+        finally:
+            self._producer = None
+    
+    
+
+
+===== docs/RUN_UPDATE.md =====
+docker exec -it broker-1 env KAFKA_OPTS="" kafka-topics --create --bootstrap-server localhost:9092 --replication-factor 3 --partitions 3 --topic reddit.submissions
+
+docker exec -it broker-1 env KAFKA_OPTS="" kafka-topics --create --bootstrap-server localhost:9092 --replication-factor 3 --partitions 3 --topic reddit.comments
+
+
+
+===== docs/RUN.md =====
+# Running the Application
+
+## Start Services
+
+Start all services using Docker Compose with the Kafka environment configuration:
+```bash
+docker compose --env-file .env.kafka up -d --build
+```
+
+## Monitor Logs
+
+### Prefect Worker and Kafka
+
+Monitor the Prefect custom worker and Kafka logs:
+```bash
+docker compose logs -f prefect-custom-worker
+```
+
+### Spark Streaming Jobs
+
+Watch Spark consume from Kafka and stream data to Elasticsearch:
+
+**Submissions streaming:**
+```bash
+docker compose logs -f spark-streaming-submissions
+```
+
+**Comments streaming:**
+```bash
+docker compose logs -f spark-streaming-comments
+```
+
+## Verify Elasticsearch Indexing
+
+### Check Document Counts
+
+**Submissions index:**
+```bash
+curl -s http://localhost:9200/reddit_submissions/_count
+```
+
+**Comments index:**
+```bash
+curl -s http://localhost:9200/reddit_comments/_count
+```
+
+### Check Indexing Statistics
+```bash
+curl -s http://localhost:9200/reddit_submissions/_stats/indexing
+```
+

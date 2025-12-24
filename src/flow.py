@@ -50,9 +50,9 @@ def streaming_flow():
     kafka_publisher = KafkaPublisher(
         producer=producer,
         max_attempts=5,
-        wait_initial=32.0,
-        wait_max=1,
-        delivery_timeout=5.0,
+        wait_initial=1.0,
+        wait_max=10.0,
+        delivery_timeout=10.0,
     )
     print("Kafka publisher initialized successfully")
 

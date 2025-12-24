@@ -142,7 +142,7 @@ class KafkaPublisher:
                 kafka_error = e.args[0] if e.args else None
                 if isinstance(kafka_error, KafkaError) and kafka_error.fatal(): #type:ignore
                     raise KafkaPublishError(f"Kafka produce failed: {kafka_error}") from e
-                raise KafkaPublishRetriableError(f"Kafka produce faled: {kafka_error}") from e
+                raise KafkaPublishRetriableError(f"Kafka produce failed: {kafka_error}") from e
             
             logger.debug("Call polling...")
             self._producer.poll(0.5)  #type:ignore
@@ -169,7 +169,7 @@ class KafkaPublisher:
 
     def close(self, timeout: float | None = None) -> None:
         try:
-            self.flush()
+            self.flush(timeout)
         finally:
             self._producer = None
     

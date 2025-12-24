@@ -41,20 +41,20 @@ class RedditCommentEvent(BaseModel):
     )
    
 
-EventPayLoad = TypeVar(
-    "EventPayLoad",
+EventPayload = TypeVar(
+    "EventPayload",
     RedditSubmissionEvent,
     RedditCommentEvent,
 )
 
-class KafkaEnvelope(Generic[EventPayLoad]):
+class KafkaEnvelope(Generic[EventPayload]):
     """
     Common architectural pattern used for sending event payload
     """
     entity_type: Literal['reddit_submission', 'reddit_comment']
     source: Literal['reddit']
     mode: Literal['trending']
-    payload: EventPayLoad
+    payload: EventPayload
     emitted_at: datetime
     metadata: dict[str,str] | None = None
 

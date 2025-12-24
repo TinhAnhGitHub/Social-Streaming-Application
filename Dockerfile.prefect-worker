@@ -1,33 +1,33 @@
-# Base image: Ubuntu 24.04
-FROM ubuntu:24.04 AS base
+    # Base image: Ubuntu 24.04
+    FROM ubuntu:24.04 AS base
 
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-pip \
-    python3-venv \
-    python3-dev \
-    gcc \
-    g++ \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+    RUN apt-get update && apt-get install -y \
+        python3 \
+        python3-pip \
+        python3-venv \
+        python3-dev \
+        gcc \
+        g++ \
+        curl \
+        && rm -rf /var/lib/apt/lists/*
 
-FROM ghcr.io/astral-sh/uv:latest AS uvbin
+    FROM ghcr.io/astral-sh/uv:latest AS uvbin
 
-FROM base AS runtime
+    FROM base AS runtime
 
-COPY --from=uvbin /uv /uvx /bin/
+    COPY --from=uvbin /uv /uvx /bin/
 
-WORKDIR /app
+    WORKDIR /app
 
-# Copy projct files
-RUN uv init --python=3.12
-COPY ./pyproject.toml /app
-RUN uv sync
+    # Copy projct files
+    RUN uv init --python=3.12
+    COPY ./pyproject.toml /app
+    RUN uv sync
 
 
 
-# Drop privileges to a non-root user
-RUN useradd -ms /bin/bash prefect
-USER prefect
+    # Drop privileges to a non-root user
+    RUN useradd -ms /bin/bash prefect
+    USER prefect
 
-CMD ["sleep", "infinity"]
+    CMD ["sleep", "infinity"]

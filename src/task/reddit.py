@@ -133,7 +133,7 @@ def fetch_and_publish_reddit_events(
                         )
                 except Exception as e:
                     raise e
-                    continue
+                    
             logger.info(
                 f"Completed r/{subreddit_name}: "
             )

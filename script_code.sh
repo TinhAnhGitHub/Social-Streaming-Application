@@ -1,4 +1,4 @@
-find app \
+find src docs \
   -type f \
   -not -path "*/__pycache__/*" \
   -not -path "*/logs/*" \
